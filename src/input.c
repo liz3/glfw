@@ -328,6 +328,15 @@ void _glfwInputChar(_GLFWwindow* window, uint32_t codepoint, int mods, GLFWbool 
     }
 }
 
+void _glfwInputTextDelete(_GLFWwindow* window, int count)
+{
+    assert(window != NULL);
+    assert(count > 0);
+
+    if (window->callbacks.textDelete)
+        window->callbacks.textDelete((GLFWwindow*) window, count);
+}
+
 // Notifies shared code of a scroll event
 //
 void _glfwInputScroll(_GLFWwindow* window, double xoffset, double yoffset)
@@ -973,6 +982,33 @@ GLFWAPI GLFWcharfun glfwSetCharCallback(GLFWwindow* handle, GLFWcharfun cbfun)
 
     _GLFW_SWAP(GLFWcharfun, window->callbacks.character, cbfun);
     return cbfun;
+}
+
+GLFWAPI GLFWtextdeletefun glfwSetTextDeleteCallback(GLFWwindow* handle,
+                                                    GLFWtextdeletefun cbfun)
+{
+    _GLFW_REQUIRE_INIT_OR_RETURN(NULL);
+
+    _GLFWwindow* window = (_GLFWwindow*) handle;
+    assert(window != NULL);
+
+    _GLFW_SWAP(GLFWtextdeletefun, window->callbacks.textDelete, cbfun);
+    return cbfun;
+}
+
+GLFWAPI void glfwSetPreeditCursorRectangle(GLFWwindow* handle,
+                                           int xpos, int ypos,
+                                           int width, int height)
+{
+    _GLFW_REQUIRE_INIT();
+
+    _GLFWwindow* window = (_GLFWwindow*) handle;
+    assert(window != NULL);
+
+    window->preeditX = xpos;
+    window->preeditY = ypos;
+    window->preeditWidth = width;
+    window->preeditHeight = height;
 }
 
 GLFWAPI GLFWcharmodsfun glfwSetCharModsCallback(GLFWwindow* handle, GLFWcharmodsfun cbfun)

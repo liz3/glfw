@@ -546,6 +546,10 @@ struct _GLFWwindow
     _GLFWcursor*        cursor;
     char*               title;
 
+    // Text cursor rectangle published with glfwSetPreeditCursorRectangle,
+    // a zero width or height means the window is not editing text
+    int                 preeditX, preeditY, preeditWidth, preeditHeight;
+
     int                 minwidth, minheight;
     int                 maxwidth, maxheight;
     int                 numer, denom;
@@ -580,6 +584,7 @@ struct _GLFWwindow
         GLFWkeyfun                key;
         GLFWcharfun               character;
         GLFWcharmodsfun           charmods;
+        GLFWtextdeletefun         textDelete;
         GLFWdropfun               drop;
     } callbacks;
 
@@ -935,6 +940,7 @@ void _glfwInputKey(_GLFWwindow* window,
                    int key, int scancode, int action, int mods);
 void _glfwInputChar(_GLFWwindow* window,
                     uint32_t codepoint, int mods, GLFWbool plain);
+void _glfwInputTextDelete(_GLFWwindow* window, int count);
 void _glfwInputScroll(_GLFWwindow* window, double xoffset, double yoffset);
 void _glfwInputMouseClick(_GLFWwindow* window, int button, int action, int mods);
 void _glfwInputCursorPos(_GLFWwindow* window, double xpos, double ypos);

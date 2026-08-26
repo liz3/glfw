@@ -1918,6 +1918,24 @@ typedef void (* GLFWkeyfun)(GLFWwindow* window, int key, int scancode, int actio
  */
 typedef void (* GLFWcharfun)(GLFWwindow* window, unsigned int codepoint);
 
+/*! @brief The function pointer type for text deletion callbacks.
+ *
+ *  This is the function pointer type for text deletion callbacks.  A text
+ *  deletion callback function has the following signature:
+ *  @code
+ *  void function_name(GLFWwindow* window, int count)
+ *  @endcode
+ *
+ *  @param[in] window The window that received the event.
+ *  @param[in] count The number of characters to remove before the text cursor.
+ *
+ *  @sa @ref input_char
+ *  @sa @ref glfwSetTextDeleteCallback
+ *
+ *  @ingroup input
+ */
+typedef void (* GLFWtextdeletefun)(GLFWwindow* window, int count);
+
 /*! @brief The function pointer type for Unicode character with modifiers
  *  callbacks.
  *
@@ -5250,6 +5268,64 @@ GLFWAPI GLFWkeyfun glfwSetKeyCallback(GLFWwindow* window, GLFWkeyfun callback);
  *  @ingroup input
  */
 GLFWAPI GLFWcharfun glfwSetCharCallback(GLFWwindow* window, GLFWcharfun callback);
+
+/*! @brief Sets the text deletion callback.
+ *
+ *  This function sets the text deletion callback of the specified window, which
+ *  is called when the platform text input system replaces characters it has
+ *  already reported through the [character callback](@ref glfwSetCharCallback).
+ *  The callback is invoked before the replacement characters are reported, and
+ *  the application should remove @p count characters before the text cursor.
+ *
+ *  It is only ever called for windows that published a text cursor rectangle
+ *  with @ref glfwSetPreeditCursorRectangle.  On macOS it drives the press and
+ *  hold accent panel, which swaps the plain letter already typed for the
+ *  accented one picked in the panel.
+ *
+ *  @param[in] window The window whose callback to set.
+ *  @param[in] callback The new callback, or `NULL` to remove the currently set
+ *  callback.
+ *  @return The previously set callback, or `NULL` if no callback was set or the
+ *  library had not been [initialized](@ref intro_init).
+ *
+ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
+ *
+ *  @thread_safety This function must only be called from the main thread.
+ *
+ *  @sa @ref input_char
+ *  @sa @ref glfwSetPreeditCursorRectangle
+ *
+ *  @ingroup input
+ */
+GLFWAPI GLFWtextdeletefun glfwSetTextDeleteCallback(GLFWwindow* window, GLFWtextdeletefun callback);
+
+/*! @brief Sets the text cursor rectangle of the specified window.
+ *
+ *  This function tells the platform text input system where the text cursor of
+ *  the specified window is, in screen coordinates relative to the upper-left
+ *  corner of the content area.  Text input systems position their panels
+ *  against it.
+ *
+ *  Publishing a rectangle also tells the platform that the window is currently
+ *  accepting text input.  On macOS this is what enables the press and hold
+ *  accent panel.  Pass a @p width or @p height of zero when the window is not
+ *  editing text, which is also the initial state.
+ *
+ *  @param[in] window The window whose text cursor rectangle to set.
+ *  @param[in] xpos The x-coordinate of the upper-left corner of the rectangle.
+ *  @param[in] ypos The y-coordinate of the upper-left corner of the rectangle.
+ *  @param[in] width The width of the rectangle, or zero to disable text input.
+ *  @param[in] height The height of the rectangle, or zero to disable text input.
+ *
+ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
+ *
+ *  @thread_safety This function must only be called from the main thread.
+ *
+ *  @sa @ref glfwSetTextDeleteCallback
+ *
+ *  @ingroup input
+ */
+GLFWAPI void glfwSetPreeditCursorRectangle(GLFWwindow* window, int xpos, int ypos, int width, int height);
 
 /*! @brief Sets the Unicode character with modifiers callback.
  *

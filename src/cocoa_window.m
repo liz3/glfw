@@ -333,6 +333,15 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
     _GLFWwindow* window;
     NSTrackingArea* trackingArea;
     NSMutableAttributedString* markedText;
+    // Text committed by the input system during the current keyDown, held back
+    // so the key event is still reported first
+    NSMutableString* pendingText;
+    int pendingDelete;
+    // Characters already reported to the application that the running marked
+    // text session stands in for and will replace when it commits
+    int markedReplaces;
+    BOOL bufferingText;
+    BOOL inputClaimedKey;
 }
 
 - (instancetype)initWithGlfwWindow:(_GLFWwindow *)initWindow;
@@ -349,6 +358,7 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
         window = initWindow;
         trackingArea = nil;
         markedText = [[NSMutableAttributedString alloc] init];
+        pendingText = [[NSMutableString alloc] init];
 
         [self updateTrackingAreas];
         [self registerForDraggedTypes:@[NSPasteboardTypeURL]];
@@ -361,6 +371,7 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
 {
     [trackingArea release];
     [markedText release];
+    [pendingText release];
     [super dealloc];
 }
 
@@ -560,14 +571,34 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
     [super updateTrackingAreas];
 }
 
+- (BOOL)textInputActive
+{
+    return window->preeditWidth > 0 && window->preeditHeight > 0;
+}
+
 - (void)keyDown:(NSEvent *)event
 {
     const int key = translateKey([event keyCode]);
     const int mods = translateFlags([event modifierFlags]);
 
-    _glfwInputKey(window, key, [event keyCode], GLFW_PRESS, mods);
+    // The text input system runs first so we can see whether it claimed the
+    // event.  It claims one by neither committing plain text nor handing the
+    // key back through doCommandBySelector:, which is how the press and hold
+    // panel takes its digits, arrows, return and escape.  Only a window that
+    // publishes a text cursor can lose keys this way.
+    bufferingText = YES;
+    inputClaimedKey = [self textInputActive];
+    pendingDelete = 0;
+    [pendingText setString:@""];
 
     [self interpretKeyEvents:@[event]];
+
+    bufferingText = NO;
+    if (!inputClaimedKey)
+        _glfwInputKey(window, key, [event keyCode], GLFW_PRESS, mods);
+    // Text is reported after the key event, the order GLFW documents
+    if (pendingDelete || [pendingText length])
+        [self emitText:pendingText delete:pendingDelete];
 }
 - (BOOL)_wantsKeyDownForEvent:(NSEvent*)event {
   // COPIED FROM https://bugreports.qt.io/browse/QTBUG-8596
@@ -658,32 +689,64 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
     return [markedText length] > 0;
 }
 
+// GLFW does not hold the application's text, so it presents the input system
+// with the smallest document that still works: either the marked text or the
+// single character last reported, with the cursor at its end.  All the input
+// system does with it is express its replacements as ranges, and only their
+// length matters to us.
+
 - (NSRange)markedRange
 {
     if ([markedText length] > 0)
-        return NSMakeRange(0, [markedText length] - 1);
+        return NSMakeRange(0, [markedText length]);
     else
         return kEmptyRange;
 }
 
 - (NSRange)selectedRange
 {
-    return kEmptyRange;
+    if ([markedText length] > 0)
+        return NSMakeRange([markedText length], 0);
+    // An empty range here tells the input system this window is not editing
+    // text, which keeps the press and hold panel away and key repeat working
+    if (![self textInputActive])
+        return kEmptyRange;
+
+    return NSMakeRange(1, 0);
 }
 
 - (void)setMarkedText:(id)string
         selectedRange:(NSRange)selectedRange
      replacementRange:(NSRange)replacementRange
 {
+    // Marked text is provisional, so it is not reported to the application.
+    // Remember how many already reported characters it will replace once the
+    // input system commits it.
+    if (replacementRange.location != NSNotFound)
+        markedReplaces += (int) replacementRange.length;
+
     [markedText release];
     if ([string isKindOfClass:[NSAttributedString class]])
         markedText = [[NSMutableAttributedString alloc] initWithAttributedString:string];
     else
         markedText = [[NSMutableAttributedString alloc] initWithString:string];
+
+    // Clearing the marked text drops whatever it replaced along with it
+    if ([markedText length] == 0 && markedReplaces > 0)
+    {
+        [self commitText:@"" delete:markedReplaces];
+        markedReplaces = 0;
+    }
 }
 
 - (void)unmarkText
 {
+    // The input system accepts the marked text as it stands, so it becomes the
+    // application's now
+    if ([markedText length] > 0)
+        [self commitText:[markedText string] delete:markedReplaces];
+
+    markedReplaces = 0;
     [[markedText mutableString] setString:@""];
 }
 
@@ -707,20 +770,61 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
                          actualRange:(NSRangePointer)actualRange
 {
     const NSRect frame = [window->ns.view frame];
-    return NSMakeRect(frame.origin.x, frame.origin.y, 0.0, 0.0);
+    // The application publishes the cursor with the content area's upper-left
+    // as the origin, the view has it at the lower-left
+    NSRect rect = NSMakeRect(window->preeditX,
+                             frame.size.height - window->preeditY - window->preeditHeight,
+                             window->preeditWidth,
+                             window->preeditHeight);
+
+    rect = [window->ns.view convertRect:rect toView:nil];
+    return [[window->ns.view window] convertRectToScreen:rect];
 }
 
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange
 {
     NSString* characters;
-    NSEvent* event = [NSApp currentEvent];
-    const int mods = translateFlags([event modifierFlags]);
-    const int plain = !(mods & GLFW_MOD_SUPER);
 
     if ([string isKindOfClass:[NSAttributedString class]])
         characters = [string string];
     else
         characters = (NSString*) string;
+
+    int replaced = markedReplaces;
+    if (replacementRange.location != NSNotFound)
+        replaced += (int) replacementRange.length;
+
+    // Plain typing, the key that produced it belongs to the application
+    if (replaced == 0)
+        inputClaimedKey = NO;
+
+    markedReplaces = 0;
+    [[markedText mutableString] setString:@""];
+
+    [self commitText:characters delete:replaced];
+}
+
+// Buffers committed text while a key is being processed, see keyDown:
+- (void)commitText:(NSString*)characters delete:(int)count
+{
+    if (bufferingText)
+    {
+        pendingDelete += count;
+        [pendingText appendString:characters];
+        return;
+    }
+
+    [self emitText:characters delete:count];
+}
+
+- (void)emitText:(NSString*)characters delete:(int)count
+{
+    NSEvent* event = [NSApp currentEvent];
+    const int mods = event ? translateFlags([event modifierFlags]) : 0;
+    const int plain = !(mods & GLFW_MOD_SUPER);
+
+    if (count > 0)
+        _glfwInputTextDelete(window, count);
 
     NSRange range = NSMakeRange(0, [characters length]);
     while (range.length)
@@ -745,6 +849,8 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
 
 - (void)doCommandBySelector:(SEL)selector
 {
+    // The input system did not want the key, so the application gets it
+    inputClaimedKey = NO;
 }
 
 @end

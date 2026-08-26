@@ -609,8 +609,12 @@ int _glfwInitCocoa(void)
     if (_glfw.hints.init.ns.chdir)
         changeToResourcesDirectory();
 
-    // Press and Hold prevents some keys from emitting repeated characters
-    NSDictionary* defaults = @{@"ApplePressAndHoldEnabled":@NO};
+    // Press and Hold replaces key repeat with the accent panel.  It only ever
+    // engages for windows that publish a text cursor rectangle with
+    // glfwSetPreeditCursorRectangle, so windows that do not keep repeating.
+    // Registering rather than setting leaves an explicit user default in
+    // charge.
+    NSDictionary* defaults = @{@"ApplePressAndHoldEnabled":@YES};
     [[NSUserDefaults standardUserDefaults] registerDefaults:defaults];
 
     [[NSNotificationCenter defaultCenter]
